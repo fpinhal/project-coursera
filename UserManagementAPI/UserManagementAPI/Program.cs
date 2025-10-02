@@ -13,7 +13,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Global middleware for exception handling
+// Global middleware for exception handling (should be first)
 app.Use(async (context, next) =>
 {
     try
@@ -26,6 +26,52 @@ app.Use(async (context, next) =>
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsJsonAsync(new { error = "Ocorreu um erro inesperado.", detail = ex.Message });
     }
+});
+
+// Simple token authentication middleware (should be after error handling)
+const string AUTH_TOKEN = "AABC12CD34EF567890GH12IJ34KL56MN78OP90QR12ST34UV56WX78YZ90AB12CD34"; // Example token
+
+app.Use(async (context, next) =>
+{
+    // Skip authentication for Swagger endpoints
+    if (context.Request.Path.StartsWithSegments("/swagger"))
+    {
+        await next();
+        return;
+    }
+
+    if (!context.Request.Headers.TryGetValue("Authorization", out var authHeader) ||
+        authHeader != $"Bearer {AUTH_TOKEN}")
+    {
+        context.Response.StatusCode = 401;
+        await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
+        return;
+    }
+
+    await next();
+});
+
+// Middleware for logging all HTTP requests and responses (should be after authentication)
+app.Use(async (context, next) =>
+{
+    // Log the incoming request
+    Console.WriteLine($"[{DateTime.Now}] Request: {context.Request.Method} {context.Request.Path}");
+
+    // Copy the response body for later reading
+    var originalBody = context.Response.Body;
+    using var memStream = new MemoryStream();
+    context.Response.Body = memStream;
+
+    await next();
+
+    // Log the outgoing response
+    memStream.Position = 0;
+    var responseBody = new StreamReader(memStream).ReadToEnd();
+    Console.WriteLine($"[{DateTime.Now}] Response: {context.Response.StatusCode} {responseBody}");
+
+    memStream.Position = 0;
+    await memStream.CopyToAsync(originalBody);
+    context.Response.Body = originalBody;
 });
 
 // In-memory user store
